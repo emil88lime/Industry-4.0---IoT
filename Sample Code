@@ -1,0 +1,353 @@
+# -*- coding: utf-8 -*-
+
+import time
+import random
+import sys
+import typing
+import requests
+import json
+import pycamunda.variable
+
+import worker
+
+def order():
+    bookorder= input("Books:")
+    return bookorder
+
+def totalpages():
+    pgs=input("Pages:")
+    return pgs
+
+def paperfeedcheck(a, b):
+    if a<=b:
+        print("Paper sheets are in place.")
+    else: 
+        sys.exit("Please add paper sheets to the printing machine.")
+    return
+
+def lithographicplatescheck(a):
+    if a == 0:
+            print("Plates not correctly added")
+            sys.exit("Please check")
+    else : print("All lithographic plates in place!")
+    return
+
+def inkcapacitycheck(e):
+    my_headers = {'Authorization': 'Basic ZGl0dG86ZGl0dG8='}
+    response = requests.get('http://localhost:8085/api/2/things/printing%3Aditto', headers=my_headers)
+    #print(response.status_code)
+    #print(response.json())
+    data =response.text
+    parse_json=json.loads(data)
+    ink1 = parse_json['features']["ink_capacity_sensor1"]["properties"]["value"]
+    ink2 = parse_json['features']["ink_capacity_sensor2"]["properties"]["value"]
+    ink3 = parse_json['features']["ink_capacity_sensor3"]["properties"]["value"]
+    ink4 = parse_json['features']["ink_capacity_sensor4"]["properties"]["value"]
+    ink5 = parse_json['features']["ink_capacity_sensor5"]["properties"]["value"]
+    ink6 = parse_json['features']["ink_capacity_sensor6"]["properties"]["value"]
+    ink7 = parse_json['features']["ink_capacity_sensor7"]["properties"]["value"]
+    ink8 = parse_json['features']["ink_capacity_sensor8"]["properties"]["value"]    
+    print('ink1', ink1,'ink2', ink2, 'ink3',ink3,'ink4',ink4,'ink5',ink5,'ink6',ink6,'ink7',ink7,'ink8',ink8)
+    capacity=[ink1,ink2,ink3,ink4,ink5,ink6,ink7,ink8]
+    i=0
+    while i<len(capacity):
+        element = int(capacity[i])
+        if (element*5000>=int(e)):
+            print("Printer number:", i+1 ,"ready to go!")
+            i+=1
+        else:
+            print("Ink not enough in printer number:", i+1)
+            sys.exit("Please refill!")
+    return
+
+def environment():
+        my_headers = {'Authorization': 'Basic ZGl0dG86ZGl0dG8='}
+        response = requests.get('http://localhost:8085/api/2/things/printing%3Aditto', headers=my_headers)
+        #print(response.status_code)
+        #print(response.json())
+        data =response.text
+        parse_json=json.loads(data)
+        enviromentTemp = parse_json['features']["enviroment_sensor"]["properties"]["value"]
+        humidity = parse_json['features']["humidity_sensor"]["properties"]["value"]
+            #Random temperature check
+            #a = random.uniform(20.5, 23.0)
+            #Random Humidity check
+            #b = random.uniform(0.51, 0.59)
+        if enviromentTemp<20 or enviromentTemp>24:
+                print("Temperature not ideal.")
+                print("{:.2f}".format(enviromentTemp) , "°C")
+                print("Please check ventilation!")
+        elif humidity<50 or humidity>60:
+                print("Humidity not ideal.")
+                print("{:.2%}".format(humidity))
+        #time.sleep(1)
+        return enviromentTemp
+
+def calculations( pages1: pycamunda.variable.Variable, books1: pycamunda.variable.Variable) -> typing.Dict[str, int]:
+    try:
+        #Total sheets
+        totalsheetsprint = ((int(pages1.value)//32)*int(books1.value)) + ((int(pages1.value)%32>0)*int(books1.value))
+        #Lithographic plates
+        lithographicplates = ((int(pages1.value)//16)*4) + ((int(pages1.value)%16>0)*4)
+        #Sheets per book
+        sheetsperbook = ((int(pages1.value)//32)*1) + ((int(pages1.value)%32>0)*1)
+    except ValueError:
+        raise worker.ExternalTaskException(message='invalid input')
+    
+    return {'totalsheetsprint': totalsheetsprint, 'lithographicplates': lithographicplates, 'sheetsperbook': sheetsperbook}
+
+def printingprocess(totalsheetsprint: pycamunda.variable.Variable) -> typing.Dict[str, int]:
+        my_headers = {'Authorization': 'Basic ZGl0dG86ZGl0dG8='}
+        response = requests.get('http://localhost:8085/api/2/things/printing%3Aditto', headers=my_headers)
+        #print(response.status_code)
+        #print(response.json())
+        data =response.text
+        parse_json=json.loads(data)
+        #Check if available sheets in paper feed
+        papercheck = parse_json['features']["paper_sensor_capacity"]["properties"]["value"]
+        added = parse_json['features']["lithographoic-plates_sensor"]["properties"]["value"]
+        print("paper_sensor_capacity=",papercheck)
+        paperfeedcheck(totalsheetsprint.value, papercheck)
+        #Printing process ink capacity
+        inkcapacitycheck(totalsheetsprint.value)
+        #Check if lithographic plates are added
+        lithographicplatescheck(added)
+        waterPH = parse_json['features']["water_PH_sensor"]["properties"]["value"]
+        watertemp = parse_json['features']["water_temprature_sensor"]["properties"]["value"]
+        waterhardness = parse_json['features']["water_hardness_sensor"]["properties"]["value"]
+        machinetemp = parse_json['features']["temprature_sensor"]["properties"]["value"]
+        alcohol = parse_json['features']["alcohol_sensor"]["properties"]["value"]
+        print(waterPH,watertemp,waterhardness,alcohol,machinetemp)
+        printedsheets=0
+        while papercheck >= 0 and int(totalsheetsprint.value) > 0:
+            #Random Water temperature check
+            #a = random.uniform(8.0 , 12.0)
+            #Random Water PH check
+            #b = random.uniform(4.8 , 5.2)
+            #Random Water Hardness check
+            #c = random.uniform(11.0 , 13.0)
+            #Check Environmental Attributes
+            environmentTemp = environment()
+            if environmentTemp<20 or environmentTemp>24:
+                print("Temperature not ideal.")
+                print("{:.2f}".format(environmentTemp) , "°C")
+                return{'Please check ventilation!': environmentTemp}
+            if machinetemp<30 or machinetemp>80:
+                print("Machine temperature not ideal.")
+                print("{:.2f}".format(machinetemp) , "°C")
+                return{'Please stop printing!': machinetemp, }
+            if watertemp<8 or watertemp>12:
+                print("Water temperature not ideal.")
+                print("{:.2f}".format(watertemp) , "°C")
+                sys.exit("Please check rollers!")
+            if waterPH<4.8 or waterPH>5.2:
+                print("Water pH not ideal.")
+                print("{:.2f}".format(waterPH), "pH")
+                sys.exit("Please check filter!")
+            if waterhardness<11 or waterhardness>13:
+                print("Water Hardness not ideal.")
+                print("{:.2f}".format(waterhardness), "°dH")
+                sys.exit("Please check water supply!")
+            if alcohol<3 or alcohol>15:
+                print("Alcohol not ideal.")
+                print("{:.2%}".format(alcohol))
+                sys.exit("Please check alcohol supply!")
+            if papercheck==0:
+                sys.exit("Paper feed empty. Please refill!")
+            if int(totalsheetsprint.value) < 100:
+                printedsheets+=totalsheetsprint.value
+                print(int(printedsheets), "sheets printed successfully")
+                break
+            elif int(totalsheetsprint.value) >= 100:
+                printedsheets+=100
+                papercheck-=100
+                totalsheetsprint.value-=100
+                print(int(printedsheets), "sheets printed successfully")
+        return {'printedsheets': printedsheets, 'environmentTemp': environmentTemp, 'machinetemp': machinetemp}
+
+def cuttingprocess(printedsheets: pycamunda.variable.Variable) -> typing.Dict[str, int]:
+        my_headers = {'Authorization': 'Basic ZGl0dG86ZGl0dG8='}
+        response = requests.get('http://localhost:8085/api/2/things/cutting%3Aditto', headers=my_headers)
+        #print(response.status_code)
+        #   print(response.json())
+        data =response.text
+        parse_json=json.loads(data)
+        bladetemp = parse_json['features']["blade_temp_sensor"]["properties"]["value"]
+        bladepress= parse_json['features']["blade_pressure_sensor"]["properties"]["value"]
+        power = parse_json['features']["on-off_sensor"]["properties"]["value"]
+        print("blade_temp_sensor=",bladetemp)
+        print("blade_pressure_sensor=",bladepress)
+        print("on-off_sensor=",power)
+        cutsheets=0
+        while printedsheets.value > 0 and power == 1:
+            #Blade temperature check
+            #a = random.uniform(130.0 , 170.0)
+            #Blade pressure check
+            #b = random.uniform(0.59 , 0.61)
+            #Cutting process successfull or not
+            #c = random.uniform(0.01 , 1.00)
+            if bladetemp<130 or bladetemp>170:
+                print("Blade temperature not ideal.")
+                print("{:.2f}".format(bladetemp) , "°C")
+                sys.exit("Please adjust cutting program!")
+            if bladepress<0.59 or bladepress>0.61:
+                print("Pressure not ideal.")
+                print("{:.2f}".format(bladepress), "bar")
+                sys.exit("Please check adjustments!")
+            #if c == 0:
+                #print("Cutting process not succesfull. Please repeat")
+                #continue
+            if int(printedsheets.value) < 1000:
+                cutsheets+=printedsheets.value
+                print(int(cutsheets), "sheets cut successfully")
+                break
+            elif int(printedsheets.value) >= 1000:
+                cutsheets+=1000
+                printedsheets.value-=1000
+                print(int(cutsheets), "sheets cut successfully")
+        return {'cutsheets': cutsheets}
+
+def foldingprocess(cutsheets: pycamunda.variable.Variable) -> typing.Dict[str, int]:
+        my_headers = {'Authorization': 'Basic ZGl0dG86ZGl0dG8='}
+        response = requests.get('http://localhost:8085/api/2/things/folding%3Aditto', headers=my_headers)
+        #print(response.status_code)
+        #print(response.json())
+        data =response.text
+        parse_json=json.loads(data)
+        knifetemp = parse_json['features']["knife_folding_temp_sensor"]["properties"]["value"]
+        foldpressure = parse_json['features']["folding_pressure_sensor"]["properties"]["value"]
+        power = parse_json['features']["on-off_sensor"]["properties"]["value"]
+        print("knife_folding_temp_sensor=",knifetemp)
+        print("folding_pressure_sensor=",foldpressure)
+        print("on-off_sensor=",power)
+        foldedsheets=0
+        while cutsheets.value > 0 and power == 1:
+            #Knife-folding temperature check
+            #a = random.uniform(180.0 , 210.0)
+            #Folding pressure check
+            #b = random.uniform(0.59 , 0.61)
+            if knifetemp<180 or knifetemp>210:
+                print("Knife temperature not ideal.")
+                print("{:.2f}".format(knifetemp) , "°C")
+                sys.exit("Please adjust folding program!")
+            if foldpressure<0.59 or foldpressure>0.61:
+                print("Pressure not ideal.")
+                print("{:.2f}".format(foldpressure), "bar")
+                sys.exit("Please check adjustments!")
+            if int(cutsheets.value) < 100:
+                foldedsheets+=cutsheets.value
+                print(int(foldedsheets), "sheets folded successfully")
+                break
+            elif int(cutsheets.value) >= 100:
+                foldedsheets+=100
+                cutsheets.value-=100
+                print(int(foldedsheets), "sheets folded successfully")
+        return {'foldedsheets': foldedsheets}
+
+def bindingprocess(books1: pycamunda.variable.Variable) -> typing.Dict[str, int]:
+        my_headers = {'Authorization': 'Basic ZGl0dG86ZGl0dG8='}
+        response = requests.get('http://localhost:8085/api/2/things/binding%3Aditto', headers=my_headers)
+        #print(response.status_code)
+        #print(response.json())
+        data =response.text
+        parse_json=json.loads(data)
+        bookcover = parse_json['features']["book_cover_availability"]["properties"]["value"]
+        info1 = parse_json['features']["cover_sensor"]["properties"]["value"]
+        power = parse_json['features']["on-off_sensor"]["properties"]["value"]
+        meltgluetemp = parse_json['features']["melt_glue_temp_sensor"]["properties"]["value"]
+        print("book_cover_availability=",bookcover)
+        print("cover_sensor=",info1)
+        print("on-off_sensor=",power)
+        print("melt_glue_temp_sensor=",meltgluetemp)
+        bindedbooks=0
+        while books1.value > 0 and power == 1:
+            #Melt Glue temperature check
+            #a = random.uniform(180.0 , 200.0)
+            #Book Cover availability check
+            #b = random.uniform(0.01 , 1.00)
+            if meltgluetemp<180.0 or meltgluetemp>200.0:
+                print("Melt Glue temperature not ideal.")
+                print("{:.2f}".format(meltgluetemp) , "°C")
+                sys.exit("Please check the glue temperature!")
+            if bookcover == 0:
+                print("Cover not ready. Please wait until it is printed!")
+                break
+            if int(books1.value) < 100:
+                bindedbooks+=books1.value
+                print(int(bindedbooks), "books binded successfully")
+                break
+            elif int(books1.value) >= 100:
+                bindedbooks+=100
+                books1.value-=100
+                print(int(bindedbooks), "books binded successfully")
+        return {'bindedbooks': bindedbooks}
+
+def printresults(bindedbooks: pycamunda.variable.Variable) -> typing.Dict:
+    sys.exit('bindedbooks:', bindedbooks)
+  
+def reportingprocess(environmentTemp: pycamunda.variable.Variable, machinetemp: pycamunda.variable.Variable) -> typing.Dict:
+    if environmentTemp.value<20 or environmentTemp.value>24:
+        sys.exit('Environment temperature error:', environmentTemp)
+    elif machinetemp.value<30 or machinetemp.value>80:
+        sys.exit('Machine temperature error:', environmentTemp)
+    return {} 
+
+if __name__=="__main__":
+    import pycamunda.processdef
+
+    url = 'http://localhost:8082/engine-rest'
+    worker_id = '1'
+
+    #Get the book order to be printed
+    print("Hello user, please enter the total amount of books ordered")
+    books_input = order()
+    books = int(books_input)
+    #Get the total pages of the book to be printed
+    print("Thank you! Please enter now the pages of the book")
+    pages_input = totalpages()
+    pages = int(pages_input)
+
+    start_instance = pycamunda.processdef.StartInstance(url=url, key='printProcessfinal')
+    start_instance.add_variable(name='pages1', value=pages)
+    start_instance.add_variable(name='books1', value=books)
+
+    for _ in range(1):
+        start_instance()
+
+    worker = worker.Worker(url=url, worker_id=worker_id)
+    worker.subscribe(
+        topic='calculationsTopic',
+        func=calculations,
+        variables=['pages1', 'books1']
+    )
+    worker.subscribe(
+        topic='printingTopic',
+        func=printingprocess,
+        variables=['totalsheetsprint']
+    )
+    worker.subscribe(
+        topic='reportTopic',
+        func=reportingprocess,
+        variables=['environmentTemp', 'machinetemp' ]
+    )
+    worker.subscribe(
+        topic='cuttingTopic',
+        func=cuttingprocess,
+        variables=['printedsheets']
+    )
+    worker.subscribe(
+        topic='foldingTopic',
+        func=foldingprocess,
+        variables=['cutsheets']
+    )
+    worker.subscribe(
+        topic='bindingTopic',
+        func=bindingprocess,
+        variables=['books1']
+    )
+    worker.subscribe(
+        topic='printedBooksTopic',
+        func=printresults,
+        variables=['bindedbooks']
+    )
+    worker.run()
